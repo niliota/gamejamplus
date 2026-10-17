@@ -29,6 +29,21 @@ public class Door : MonoBehaviour
 
     void Interact() => Toggle(); // HorrorController klikləyəndə çağırır
 
+    public bool IsClosed => Mathf.Abs(target) < 1f;
+
+    // Varlıq üçün: bağlıdırsa "from" nöqtəsindən uzağa açılır və açıq qalır (avtomatik bağlanmır)
+    public void OpenAwayFrom(Vector3 from)
+    {
+        if (!IsClosed) return;
+        from = from - transform.position;
+        float side = Vector3.Dot(from, normal);
+        this.from = angle;
+        target = (side < 0 ? -1 : 1) * Mathf.Abs(openAngle);
+        openedSide = 0;
+        t = 0;
+        GameAudio.Door(transform.position, true);
+    }
+
     public void Toggle()
     {
         from = angle;
@@ -40,6 +55,7 @@ public class Door : MonoBehaviour
             target = (openedSide < 0 ? -1 : 1) * Mathf.Abs(openAngle);
         }
         t = 0;
+        GameAudio.Door(transform.position, target != 0);
     }
 
     void Update()

@@ -41,6 +41,7 @@ public class SecurityDesk : MonoBehaviour
         string text = $"CAM {current + 1}  {cameraNames[current]}";
         if (label) label.text = text;
         if (fullscreenLabel) fullscreenLabel.text = text;
+        if (seated && t >= 1 && GameAudio.I) GameAudio.I.CameraViewed(current);
     }
 
     void Interact() // HorrorController klikləyəndə çağırır
@@ -52,6 +53,20 @@ public class SecurityDesk : MonoBehaviour
         standPos = player.head.position;
         standRot = player.head.rotation;
         Move(seatView.position, seatView.rotation);
+    }
+
+    // Varlıq tutanda: dərhal ayağa qalx (tam ekran bağlanır, baş yerinə qayıdır)
+    public void ForceStand()
+    {
+        if (!seated) return;
+        seated = false;
+        t = 1;
+        if (fullscreen) fullscreen.SetActive(false);
+        weaken = weakenTarget = 0;
+        Shader.SetGlobalFloat(LethalLookWeaken, 0);
+        player.head.SetPositionAndRotation(standPos, standRot);
+        if (flashlight) flashlight.SetActive(true);
+        player.enabled = true;
     }
 
     void Move(Vector3 pos, Quaternion rot)
@@ -83,6 +98,7 @@ public class SecurityDesk : MonoBehaviour
                 {
                     if (fullscreen) fullscreen.SetActive(true);
                     weakenTarget = effectReduction;
+                    if (GameAudio.I) GameAudio.I.CameraViewed(current);
                 }
                 else
                 {

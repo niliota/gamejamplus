@@ -32,6 +32,11 @@ public static class DecorBuilder
         SecurityCameras(root);
         SecurityMonitor();
         Anomalies(root);
+        Enemy(root);
+        Lives(root);
+        Audio(root);
+        BakeNavMesh(root);
+        EnemySpawns(root);
 
         Undo.RegisterCreatedObjectUndo(root.gameObject, "Build Decor");
         EditorSceneManager.MarkSceneDirty(root.gameObject.scene);
@@ -365,6 +370,7 @@ public static class DecorBuilder
         lintel.SetPositionAndRotation((a + b) / 2 - d * 0.11f + Vector3.up * 2.5f, Quaternion.LookRotation(d));
         lintel.localScale = new Vector3(Vector3.Distance(a, b), 1, 0.22f);
         lintel.GetComponent<Renderer>().sharedMaterial = SimpleMat("M_DoorLintel", new Color(0.72f, 0.70f, 0.64f), 0, 0.2f);
+        lintel.gameObject.AddComponent<Unity.AI.Navigation.NavMeshModifier>().ignoreFromBuild = true; // 2 m-dən başlayır: NavMesh qapını bağlı saymasın
     }
 
     // Qanad: pivot menteşədədir, Door komponenti onu otağa doğru 0..90° fırladır; başlanğıcda 'angle' dərəcə aralıdır.
@@ -382,6 +388,7 @@ public static class DecorBuilder
         door.openAngle = sign * 90;
         var model = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(MapBuilder.ModelPath("model")), pivot);
         foreach (var mf in model.GetComponentsInChildren<MeshFilter>()) mf.gameObject.AddComponent<BoxCollider>();
+        pivot.gameObject.AddComponent<Unity.AI.Navigation.NavMeshModifier>().ignoreFromBuild = true; // NavMesh qapıdan keçsin (varlıq qapını özü açır)
     }
 
     static Material SimpleMat(string name, Color color, float metallic, float smoothness)
@@ -453,6 +460,209 @@ public static class DecorBuilder
         Entity(entity, cctv[3].transform, new Vector3(24.7f, 0, -20.05f), mat);
 
         manager.sequence = new Anomaly[] { chairs, floor, clock, entity };
+        chairs.cctvIndex = 0; floor.cctvIndex = 2; clock.cctvIndex = 2; entity.cctvIndex = 3; // cctv[] sırası
+        chairs.loopSound = Sound("anomaly sound of tables.wav", stream: true);
+    }
+
+    static AudioClip Sound(string file, bool stream = false)
+    {
+        string path = "Assets/sounds/" + file;
+        if (stream) // uzun fayl (5 dəq): yaddaşa tam yüklənməsin
+        {
+            var imp = (AudioImporter)AssetImporter.GetAtPath(path);
+            var s = imp.defaultSampleSettings;
+            if (s.loadType != AudioClipLoadType.Streaming)
+            {
+                s.loadType = AudioClipLoadType.Streaming;
+                s.compressionFormat = AudioCompressionFormat.Vorbis;
+                s.quality = 0.5f;
+                imp.defaultSampleSettings = s;
+                imp.SaveAndReimport();
+            }
+        }
+        var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+        if (!clip) Debug.LogWarning("Sound not found: " + path);
+        return clip;
+    }
+
+    // Bütün oyun səsləri (GameAudio)
+    static void Audio(Transform root)
+    {
+        var go = new GameObject("Audio");
+        go.transform.SetParent(root, false);
+        var a = go.AddComponent<GameAudio>();
+        a.doorOpen = Sound("door opening.wav");
+        a.doorClose = Sound("door closing.wav");
+        a.cctvAlert = Sound("camedra anomaly detectsion sound will dbe played  from camera when we saw anomaly in  camera.wav");
+        a.creepy = new[] { Sound("random creepy sound.wav"), Sound("random creepy sound.mp3"), Sound("random creepy sound (2).mp3") };
+        a.horrorMusic = Sound("random horror music effect to increaase  horror.wav", stream: true);
+        a.chase = Sound("when entity chase  us.wav");
+        a.endMusic = Sound("game end music when we won  it will play full when we fail last beep[ will not play.wav");
+    }
+
+    // Düşmən varlıq (EnemyEntity): oyunun əvvəlində gizlidir; anomaliya vaxtında düzəldilməsə spawn olur.
+    // Animator: "Idle" (Zombie Idle) və "Crawl" (Running Crawl), ikisi də dövrü (loop).
+    static void Enemy(Transform root)
+    {
+        var go = new GameObject("Enemy");
+        go.transform.SetParent(root, false);
+        go.transform.position = new Vector3(8, 0, -5); // test üçün activeOnStart olanda burada (Lab) peyda olur
+        var agent = go.AddComponent<UnityEngine.AI.NavMeshAgent>();
+        agent.radius = 0.35f;
+        agent.height = 1.9f;
+        agent.angularSpeed = 360;
+        agent.acceleration = 12;
+        agent.stoppingDistance = 0.3f;
+        agent.enabled = false;
+
+        var model = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>("Assets/entity/Character_Monster_04.fbx"), go.transform);
+        model.transform.localScale = Vector3.one * 0.4f; // model ~6 m-dir
+        var animator = model.GetComponent<Animator>() ? model.GetComponent<Animator>() : model.AddComponent<Animator>();
+        animator.runtimeAnimatorController = EnemyAnimator();
+        animator.applyRootMotion = false;
+        animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+
+        var bones = model.GetComponentsInChildren<Transform>();
+        var enemy = go.AddComponent<EnemyEntity>();
+        enemy.animator = animator;
+        enemy.eyes = bones.First(t => t.name == "mixamorig:Head");
+        enemy.hips = bones.First(t => t.name == "mixamorig:Hips");
+        enemy.activeOnStart = true; // TEST: sonra false et (normalda yalnız anomaliya səhv olanda gəlir)
+        foreach (var r in model.GetComponentsInChildren<Renderer>()) r.enabled = false;
+    }
+
+    static UnityEditor.Animations.AnimatorController EnemyAnimator()
+    {
+        const string path = "Assets/entity/Entity.controller";
+        var ctrl = AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(path);
+        if (ctrl) return ctrl;
+        ctrl = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(path);
+        var sm = ctrl.layers[0].stateMachine;
+        sm.defaultState = AddLoopState(sm, "Idle", "Assets/entity/Zombie Idle.fbx");
+        AddLoopState(sm, "Crawl", "Assets/entity/Running Crawl.fbx");
+        return ctrl;
+    }
+
+    static UnityEditor.Animations.AnimatorState AddLoopState(UnityEditor.Animations.AnimatorStateMachine sm, string name, string fbx)
+    {
+        var imp = (ModelImporter)AssetImporter.GetAtPath(fbx);
+        var clips = imp.defaultClipAnimations;
+        foreach (var c in clips) c.loopTime = true;
+        imp.clipAnimations = clips;
+        imp.SaveAndReimport();
+        var state = sm.AddState(name);
+        state.motion = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>().First(c => !c.name.StartsWith("__preview"));
+        return state;
+    }
+
+    // Canlar (yuxarı solda ürəklər) + jump-scare qırmızı işartı + oyun sonu qaralma
+    static void Lives(Transform root)
+    {
+        var canvasGo = new GameObject("LivesUI", typeof(Canvas), typeof(UnityEngine.UI.CanvasScaler));
+        canvasGo.transform.SetParent(root, false);
+        var canvas = canvasGo.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 30; // CCTV tam ekranının üstündə
+        var scaler = canvasGo.GetComponent<UnityEngine.UI.CanvasScaler>();
+        scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 1;
+
+        UnityEngine.UI.Image FullScreen(string name)
+        {
+            var img = Stretch(new GameObject(name, typeof(RectTransform), typeof(UnityEngine.UI.Image)), canvasGo.transform).GetComponent<UnityEngine.UI.Image>();
+            img.color = Color.clear;
+            img.raycastTarget = false;
+            return img;
+        }
+        var lives = canvasGo.AddComponent<PlayerLives>();
+        lives.flash = FullScreen("Flash");
+        lives.fade = FullScreen("Fade");
+        lives.hearts = UIText("Hearts", canvasGo.transform, new Vector2(0, 1), new Vector2(40, -30), 44, new Color(0.75f, 0.05f, 0.05f), TextAnchor.UpperLeft);
+        lives.hearts.text = "♥ ♥ ♥";
+    }
+
+    // NavMesh: döşəmə, divarlar və mebelin collider-lərindən. Qapılar və oyunçu daxil edilmir.
+    static void BakeNavMesh(Transform root)
+    {
+        var player = Object.FindAnyObjectByType<HorrorController>();
+        if (player && !player.GetComponent<Unity.AI.Navigation.NavMeshModifier>())
+            player.gameObject.AddComponent<Unity.AI.Navigation.NavMeshModifier>().ignoreFromBuild = true;
+
+        // Mebelin üstü yerimək olmaz: varlıq stolun / stulun üstündə peyda olmasın və onların üstündən keçməsin (yalnız döşəmə)
+        foreach (Transform group in root)
+        {
+            if (group.GetComponent<Unity.AI.Navigation.NavMeshModifier>()) continue;
+            var mod = group.gameObject.AddComponent<Unity.AI.Navigation.NavMeshModifier>();
+            mod.overrideArea = true;
+            mod.area = UnityEngine.AI.NavMesh.GetAreaFromName("Not Walkable");
+        }
+
+        var surface = root.gameObject.AddComponent<Unity.AI.Navigation.NavMeshSurface>();
+        surface.collectObjects = Unity.AI.Navigation.CollectObjects.All;
+        surface.useGeometry = UnityEngine.AI.NavMeshCollectGeometry.PhysicsColliders;
+        surface.BuildNavMesh();
+
+        const string path = "Assets/Scenes/SampleScene_NavMesh.asset";
+        surface.navMeshData.name = "SampleScene_NavMesh"; // asset adı fayl adı ilə eyni olsun
+        var existing = AssetDatabase.LoadAssetAtPath<UnityEngine.AI.NavMeshData>(path);
+        if (existing)
+        {
+            EditorUtility.CopySerialized(surface.navMeshData, existing);
+            surface.navMeshData = existing;
+        }
+        else AssetDatabase.CreateAsset(surface.navMeshData, path);
+        surface.AddData();
+    }
+
+    // Varlığın sabit spawn / gəzinti nöqtələri: hər otaqda 4 (dəhlizdə 6), açıq döşəmədə, mebeldən və divardan aralı,
+    // dəhlizə tam yolu olan. Ad = otaq adı (Anomaly.roomName ilə eyni). NavMesh bişiriləndən sonra çağırılır.
+    static void EnemySpawns(Transform root)
+    {
+        var rooms = new (string name, float xa, float xb, float za, float zb, int count)[]
+        {
+            ("LAB", 1, 15, -9, -1, 4), ("STORAGE", 23, 33, -9, -1, 4), ("REACTOR", 23, 33, -21, -11, 4),
+            ("ARCHIVE", 1, 9, -19, -11, 4), ("SECURITY", 11, 17, -25, -19, 4), ("CORRIDOR", 19, 21, -25, -1, 6),
+        };
+        var go = new GameObject("EnemySpawns");
+        go.transform.SetParent(root, false);
+        var player = Object.FindAnyObjectByType<HorrorController>();
+        var corridor = new Vector3(20, 0, -10);
+        var points = new System.Collections.Generic.List<Transform>();
+
+        foreach (var r in rooms)
+        {
+            var valid = new System.Collections.Generic.List<Vector3>();
+            bool narrow = r.xb - r.xa < 3; // dəhliz: 2 m enində
+            float margin = narrow ? 1f : 0.8f, minEdge = narrow ? 0.25f : 0.6f;
+            for (float x = r.xa + margin; x <= r.xb - margin; x += 0.5f)
+                for (float z = r.za + margin; z <= r.zb - margin; z += 0.5f)
+                {
+                    var p = new Vector3(x, 0, z);
+                    if (!UnityEngine.AI.NavMesh.SamplePosition(p, out var hit, 0.3f, UnityEngine.AI.NavMesh.AllAreas) || hit.position.y > 0.4f) continue;
+                    if (UnityEngine.AI.NavMesh.FindClosestEdge(hit.position, out var edge, UnityEngine.AI.NavMesh.AllAreas) && edge.distance < minEdge) continue;
+                    var blockers = Physics.OverlapCapsule(p + Vector3.up * 0.6f, p + Vector3.up * 1.8f, narrow ? 0.4f : 0.5f, ~0, QueryTriggerInteraction.Ignore);
+                    if (blockers.Any(c => !player || !c.transform.IsChildOf(player.transform))) continue;
+                    var path = new UnityEngine.AI.NavMeshPath();
+                    if (!UnityEngine.AI.NavMesh.CalculatePath(hit.position, corridor, UnityEngine.AI.NavMesh.AllAreas, path) || path.status != UnityEngine.AI.NavMeshPathStatus.PathComplete) continue;
+                    valid.Add(hit.position);
+                }
+            if (valid.Count == 0) { Debug.LogWarning("EnemySpawns: no valid point in " + r.name); continue; }
+
+            // bir-birindən ən uzaq nöqtələr (otağa yayılsın)
+            var chosen = new System.Collections.Generic.List<Vector3> { valid.OrderBy(v => Vector3.Distance(v, new Vector3((r.xa + r.xb) / 2, 0, (r.za + r.zb) / 2))).First() };
+            while (chosen.Count < r.count && chosen.Count < valid.Count)
+                chosen.Add(valid.OrderByDescending(v => chosen.Min(c => Vector3.Distance(v, c))).First());
+
+            for (int i = 0; i < chosen.Count; i++)
+            {
+                var t = new GameObject(r.name).transform;
+                t.SetParent(go.transform, false);
+                t.position = chosen[i];
+                points.Add(t);
+            }
+        }
+        Object.FindAnyObjectByType<EnemyEntity>().spawnPoints = points.ToArray();
     }
 
     // Varlıq (entity qovluğu, Mixamo): Zombie Idle-ın bir kadrında donmuş poza, ~2 m, gövdəsi və başı kameraya çevrilib.

@@ -35,6 +35,7 @@ public class GameBoyConsole : MonoBehaviour
 
     bool open;
     float progress, scan;                       // progress: konsol animasiyası, scan: skan 0..1
+    float failFlash;                            // skan alınmayanda qırmızı yanma (1 → 0)
     string loadedScene;
     Vector3 shownPos;
     Quaternion shownRot;
@@ -79,14 +80,16 @@ public class GameBoyConsole : MonoBehaviour
     {
         var target = anomalies ? anomalies.Current : null;
         bool inRange = target && !busy && player.enabled && InRange(target);
-        bool holding = inRange && kb != null && kb.fKey.isPressed;
+        failFlash = Mathf.MoveTowards(failFlash, 0, Time.deltaTime);
+        bool holding = inRange && failFlash == 0 && kb != null && kb.fKey.isPressed;
         scan = holding ? scan + Time.deltaTime / scanTime : Mathf.MoveTowards(scan, 0, Time.deltaTime * 2);
 
         if (scanUI)
         {
-            scanUI.SetActive(scan > 0); // yalnız skan zamanı: göstərici və effekt, yazı yoxdur
+            scanUI.SetActive(scan > 0 || failFlash > 0); // yalnız skan zamanı: göstərici və effekt, yazı yoxdur
             scanFill.fillAmount = scan;
-            scanTint.color = new Color(0.3f, 1f, 0.5f, 0.25f * scan);
+            scanTint.color = failFlash > 0 ? new Color(1f, 0.1f, 0.05f, 0.35f * failFlash) // skan alınmadı: qırmızı
+                                           : new Color(0.3f, 1f, 0.5f, 0.25f * scan);
             scanLine.anchorMin = scanLine.anchorMax = new Vector2(0.5f, 1 - Mathf.Repeat(Time.time * 1.2f, 1));
             if (scanText) scanText.enabled = false;
         }
@@ -99,7 +102,8 @@ public class GameBoyConsole : MonoBehaviour
         if (scan >= 1)
         {
             scan = 0;
-            if (string.IsNullOrEmpty(target.miniGameScene)) anomalies.Resolve(); // mini oyun yoxdur: skan anomaliyanı düzəldir
+            if (anomalies.ScanFails()) { failFlash = 1; anomalies.Fail(); } // anomaliya qalır, yenidən skan etmək olar
+            else if (string.IsNullOrEmpty(target.miniGameScene)) anomalies.Resolve(); // mini oyun yoxdur: skan anomaliyanı düzəldir
             else Open(target);
         }
     }
