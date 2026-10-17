@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "unity-mcp": {
+      "type": "stdio",
+      "command": "/home/ash/.unity/relay/relay_linux",
+      "args": [
+        "--mcp",
+        "--project-path",
+        "/home/ash/Documents/Projects/gamejamplus"
+      ],
+      "env": {}
+    }
+  }
+}
