@@ -3,7 +3,7 @@ using UnityEngine;
 
 // Mini-game for the floating chairs anomaly: chairs rise around the arena and get thrown at the player.
 // Survive winTime seconds → anomaly is resolved. Getting hit restarts the round.
-// Built by Tools > Build Chair MiniGame (Assets/Minigames/ChairMiniGame.unity).
+// Built by Tools > Build Chair MiniGame (Assets/TuralTo/ChairMiniGame.unity).
 public class ChairDodgeGame : MonoBehaviour
 {
     public TopDownPlayer player;

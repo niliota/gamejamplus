@@ -5,13 +5,13 @@ using UnityEngine;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
-// Tools > Build Chair MiniGame: (re)creates Assets/Minigames/ChairMiniGame.unity — the floating chairs anomaly's
-// Game Boy mini-game. Top-down arena built from Assets/Minigames/Sprites, drawn 1:1 into RT_GameBoy (240x160).
+// Tools > Build Chair MiniGame: (re)creates Assets/TuralTo/ChairMiniGame.unity — the floating chairs anomaly's
+// Game Boy mini-game. Top-down arena built from Assets/Sprites, drawn 1:1 into RT_GameBoy (240x160).
 // The scene is overwritten on every run, so tweak the layout here rather than in the scene.
 public static class ChairMiniGameBuilder
 {
-    const string ScenePath = "Assets/Minigames/ChairMiniGame.unity";
-    const string SpriteDir = "Assets/Minigames/Sprites/";
+    const string ScenePath = "Assets/TuralTo/ChairMiniGame.unity";
+    const string SpriteDir = "Assets/Sprites/";
     const string RTPath = "Assets/GameBoy/RT_GameBoy.renderTexture";
     const float PPU = 16;   // 160px tall RT / ortho size 5 → 16px per unit, pixel-perfect
     const string ChairSprite = "lockerbarier.png"; // placeholder until a chair sprite exists
@@ -146,7 +146,7 @@ public static class ChairMiniGameBuilder
     // A renderer without features (copy of Mobile_Renderer), registered on every URP asset at the same index.
     static int MiniGameRenderer()
     {
-        const string path = "Assets/Minigames/MiniGame_Renderer.asset";
+        const string path = "Assets/TuralTo/MiniGame_Renderer.asset";
         if (!AssetDatabase.LoadAssetAtPath<ScriptableObject>(path)) AssetDatabase.CopyAsset("Assets/Settings/Mobile_Renderer.asset", path);
         var renderer = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
         var rso = new SerializedObject(renderer);
